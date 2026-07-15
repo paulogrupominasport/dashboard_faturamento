@@ -747,7 +747,7 @@ body.exporting .kcard,body.exporting .card,body.exporting .ucard,body.exporting 
   <div class="sect fade" style="animation-delay:.28s">
     <div class="tcard">
       <div class="th"><h3 style="font-family:'Archivo';font-weight:700;font-size:.98rem;display:flex;align-items:center;gap:10px"><span class="bar" style="width:4px;height:17px;background:var(--green);border-radius:3px"></span>Faturamento por Cliente</h3>
-        <div class="csub">Carregado no dia de referência selecionado · clique nos cabeçalhos para ordenar</div></div>
+        <div class="csub" id="cli-csub">Carregado no dia de referência selecionado · clique nos cabeçalhos para ordenar</div></div>
       <div class="tscroll"><table id="tbl-cli">
         <thead><tr>
           <th data-k="cli">Cliente <span class="ar">↕</span></th>
@@ -796,7 +796,7 @@ body.exporting .kcard,body.exporting .card,body.exporting .ucard,body.exporting 
     <div class="grid-2">
       <div class="card">
         <h3><span class="bar"></span>Evolução Diária do Faturamento</h3>
-        <div class="csub">Faturamento bruto por dia de emissão (R$)</div>
+        <div class="csub">Faturamento bruto por dia de emissão (R$) — total, Sudeste (MG) e Sul (SC)</div>
         <div class="chart-wrap" style="height:300px"><canvas id="trend"></canvas></div>
       </div>
       <div class="card">
@@ -856,7 +856,7 @@ body.exporting .kcard,body.exporting .card,body.exporting .ucard,body.exporting 
   <div class="sect fade" style="animation-delay:.36s">
     <div class="card">
       <h3><span class="bar"></span>Faturamento Bruto Mensal</h3>
-      <div class="csub">Evolução mês a mês do faturamento bruto total — base de dados carregada</div>
+      <div class="csub">Evolução mês a mês do faturamento bruto total — base de dados completa (não afetado pelo filtro de datas)</div>
       <div class="chart-wrap" style="height:300px"><canvas id="monthly"></canvas></div>
       <div id="monthly-analysis" style="margin-top:18px;padding:16px;background:var(--panel-2);border-radius:10px;border:1px solid var(--line);font-size:.85rem;line-height:1.7;color:var(--txt)"></div>
     </div>
@@ -931,6 +931,8 @@ const INT = v => (v||0).toLocaleString('pt-BR');
 const fmtDate = s => {const[y,m,d]=s.split('-');return `${d}/${m}/${y}`;};
 const sum = (a,k) => a.reduce((s,r)=>s+(r[k]||0),0);
 const C = {green:'#B6D531',greenDeep:'#8aa825',blue:'#69c0ff',gray:'#7b8070',grid:'#2a2e21',txt:'#a7ad98'};
+// Região a partir da unidade: MG (notas > 400.000) = Sudeste · SC (notas < 200.000) = Sul
+const REG = u => u==='MG' ? 'Sudeste' : (u==='SC' ? 'Sul' : 'Outra');
 
 // ---------- date / vencimento helpers (espelham a lógica original) ----------
 const z2 = n => ('0'+n).slice(-2);
@@ -1003,6 +1005,7 @@ function renderDay(refDay){
   const dayRows=DATA.filter(r=>r.d===refDay), accRows=DATA.filter(r=>r.d<=refDay);
   document.getElementById('dia-label').textContent=fmtDate(refDay);
   document.getElementById('acc-label').textContent=`${fmtDate(firstDay)} até ${fmtDate(refDay)}`;
+  const _cliCsub=document.getElementById('cli-csub'); if(_cliCsub) _cliCsub.textContent=`Dia de referência: ${fmtDate(refDay)} · clientes separados por região (Sudeste e Sul)`;
   const db=sum(dayRows,'tb'),dl=sum(dayRows,'tl'),dp=sum(dayRows,'qt');
   document.getElementById('d-bruto').innerHTML=BRL(db);
   document.getElementById('d-liq').innerHTML=BRL(dl);
@@ -1058,8 +1061,28 @@ function makeTable(cfg){
     rows.sort((a,b)=>{let x=a[sortK],y=b[sortK];
       if(col&&col.str)return asc?String(x).localeCompare(y):String(y).localeCompare(x);
       return asc?x-y:y-x;});
-    tbody.innerHTML=rows.map(r=>'<tr>'+cfg.columns.map(c=>{
-      const cls=c.left?' style="text-align:left"':'';return `<td${cls}>${c.render(r)}</td>`;}).join('')+'</tr>').join('');
+    const rowHtml=r=>'<tr>'+cfg.columns.map(c=>{
+      const cls=c.left?' style="text-align:left"':'';return `<td${cls}>${c.render(r)}</td>`;}).join('')+'</tr>';
+    if(cfg.groupBy){
+      const order=cfg.groupOrder||[];
+      const gkey=r=>r[cfg.groupBy];
+      const groups=[...new Set(rows.map(gkey))].sort((a,b)=>{
+        const ia=order.indexOf(a), ib=order.indexOf(b);
+        return (ia<0?99:ia)-(ib<0?99:ib) || String(a).localeCompare(b);});
+      const nc=cfg.columns.length;
+      tbody.innerHTML=groups.map(g=>{
+        let gr=rows.filter(r=>gkey(r)===g);
+        // mantém as linhas de um mesmo cliente uma ao lado da outra dentro do grupo
+        if(cfg.clusterBy){
+          const firstIdx={}; gr.forEach((r,i)=>{const k=r[cfg.clusterBy]; if(!(k in firstIdx)) firstIdx[k]=i;});
+          gr=gr.map((r,i)=>({r,i})).sort((a,b)=> (firstIdx[a.r[cfg.clusterBy]]-firstIdx[b.r[cfg.clusterBy]]) || (a.i-b.i)).map(o=>o.r);
+        }
+        const head=`<tr class="grp-row"><td colspan="${nc}" style="text-align:left;background:var(--panel-2);font-family:'Archivo';font-weight:800;letter-spacing:.6px;color:var(--green);text-transform:uppercase;font-size:.78rem;padding:9px 14px">Região ${g} · ${gr.length} ${gr.length===1?'registro':'registros'}</td></tr>`;
+        return head+gr.map(rowHtml).join('');
+      }).join('');
+    } else {
+      tbody.innerHTML=rows.map(rowHtml).join('');
+    }
     tfoot.innerHTML='<tr>'+cfg.foot(rows).map((v,i)=>{
       const cls=i===0?' style="text-align:left"':'';return `<td${cls}>${v}</td>`;}).join('')+'</tr>';
   }
@@ -1067,15 +1090,16 @@ function makeTable(cfg){
 }
 const cliTable=makeTable({
   id:'tbl-cli',defaultSort:{k:'tb',asc:false},
-  buildRows:_data=>{const data=DATA.filter(r=>r.d===selectedDay);const m={};data.forEach(r=>{const k=r.cli;if(!m[k])m[k]={cli:k,tb:0,tl:0,qt:0,n:0,mats:new Set(),units:new Set()};
+  groupBy:'reg',groupOrder:['Sudeste','Sul'],
+  buildRows:_data=>{const data=DATA.filter(r=>r.d===selectedDay);const m={};data.forEach(r=>{const reg=REG(r.u);const k=r.cli+'||'+reg;if(!m[k])m[k]={cli:r.cli,reg,tb:0,tl:0,qt:0,n:0,mats:new Set(),units:new Set()};
     m[k].tb+=r.tb;m[k].tl+=r.tl;m[k].qt+=r.qt;m[k].n++;m[k].mats.add(r.prod);m[k].units.add(r.u);});
-    return Object.values(m).map(v=>({cli:v.cli,u:[...v.units].join('/'),mat:v.mats.size,n:v.n,qt:v.qt,tb:v.tb,tl:v.tl}));},
+    return Object.values(m).map(v=>({cli:v.cli,reg:v.reg,u:[...v.units].join('/'),mat:v.mats.size,n:v.n,qt:v.qt,tb:v.tb,tl:v.tl}));},
   columns:[
     {k:'cli',str:true,left:true,render:r=>r.cli},
     {k:'u',str:true,left:true,render:r=>[...new Set(r.u.split('/'))].map(u=>`<span class="tag ${u.toLowerCase()}">${u}</span>`).join(' ')},
     {k:'mat',render:r=>r.mat},{k:'n',render:r=>INT(r.n)},{k:'qt',render:r=>NUM(r.qt)},
     {k:'tb',render:r=>BRL(r.tb)},{k:'tl',render:r=>BRL(r.tl)}],
-  foot:rows=>[`TOTAL · ${rows.length} clientes`,'','',INT(rows.reduce((s,r)=>s+r.n,0)),
+  foot:rows=>[`TOTAL · ${new Set(rows.map(r=>r.cli)).size} clientes`,'','',INT(rows.reduce((s,r)=>s+r.n,0)),
     NUM(rows.reduce((s,r)=>s+r.qt,0)),BRL(rows.reduce((s,r)=>s+r.tb,0)),BRL(rows.reduce((s,r)=>s+r.tl,0))]
 });
 const matTable=makeTable({
@@ -1101,12 +1125,14 @@ function initCharts(){
   Object.values(charts).forEach(c=>{try{c.destroy();}catch(e){}});
 
   // Trend
-  const byDay=days.map(d=>{const r=DATA.filter(x=>x.d===d);return{d,tb:sum(r,'tb'),tl:sum(r,'tl')};});
+  const byDay=days.map(d=>{const r=DATA.filter(x=>x.d===d);return{d,tb:sum(r,'tb'),tl:sum(r,'tl'),sudeste:sum(r.filter(x=>x.u==='MG'),'tb'),sul:sum(r.filter(x=>x.u==='SC'),'tb')};});
   const tctx=document.getElementById('trend').getContext('2d');
   const grad=(c1,c2)=>{const g=tctx.createLinearGradient(0,0,0,300);g.addColorStop(0,c1);g.addColorStop(1,c2);return g;};
   charts.trend=new Chart(document.getElementById('trend'),{type:'line',
     data:{labels:byDay.map(x=>x.d.slice(8)+'/'+x.d.slice(5,7)),datasets:[
-      {label:'Bruto',data:byDay.map(x=>x.tb),borderColor:C.green,backgroundColor:grad('rgba(182,213,49,.28)','rgba(182,213,49,0)'),fill:true,tension:.38,borderWidth:2.5,pointRadius:0,pointHoverRadius:5,pointBackgroundColor:C.green}]},
+      {label:'Total',data:byDay.map(x=>x.tb),borderColor:'#c9ccb8',backgroundColor:grad('rgba(201,204,184,.14)','rgba(201,204,184,0)'),fill:true,tension:.38,borderWidth:2,borderDash:[6,4],pointRadius:0,pointHoverRadius:5,pointBackgroundColor:'#c9ccb8'},
+      {label:'Sudeste (MG)',data:byDay.map(x=>x.sudeste),borderColor:C.green,backgroundColor:'transparent',fill:false,tension:.38,borderWidth:2.5,pointRadius:0,pointHoverRadius:5,pointBackgroundColor:C.green},
+      {label:'Sul (SC)',data:byDay.map(x=>x.sul),borderColor:C.blue,backgroundColor:'transparent',fill:false,tension:.38,borderWidth:2.5,pointRadius:0,pointHoverRadius:5,pointBackgroundColor:C.blue}]},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
       plugins:{legend:{labels:{usePointStyle:true,pointStyle:'rectRounded',boxWidth:10,font:{weight:'700'}}},
         tooltip:{backgroundColor:'#15170f',borderColor:'#2e3326',borderWidth:1,padding:12,titleColor:'#fff',callbacks:{title:i=>'Dia '+i[0].label,label:c=>c.dataset.label+': '+BRL(c.raw)}}},
@@ -1120,7 +1146,7 @@ function initCharts(){
     options:{responsive:true,maintainAspectRatio:false,cutout:'66%',
       plugins:{legend:{position:'bottom',labels:{usePointStyle:true,pointStyle:'rectRounded',padding:16,font:{weight:'700'},generateLabels:chart=>{const ds=chart.data.datasets[0];const tot=ds.data.reduce((a,b)=>a+b,0)||1;return chart.data.labels.map((lbl,i)=>({text:lbl+' '+NUM(ds.data[i]/tot*100,1)+'%',fillStyle:ds.backgroundColor[i],strokeStyle:ds.borderColor,lineWidth:ds.borderWidth,hidden:false,index:i}));}}},
         tooltip:{backgroundColor:'#15170f',borderColor:'#2e3326',borderWidth:1,padding:12,callbacks:{label:c=>c.label+': '+BRL(c.raw)+' ('+NUM(c.raw/((mgB+scB)||1)*100,1)+'%)'}}},
-      animation:{onComplete:function(){const ctx=this.ctx;const cx=this.chartArea?(this.chartArea.left+this.chartArea.right)/2:this.width/2;const cy=this.chartArea?(this.chartArea.top+this.chartArea.bottom)/2:this.height/2;const tot=(mgB+scB)||1;this.data.datasets[0].data.forEach((val,i)=>{const meta=this.getDatasetMeta(0);if(meta.data[i]){const el=meta.data[i];const mid=el.startAngle+(el.endAngle-el.startAngle)/2;const r=(el.outerRadius+el.innerRadius)/2;const x=cx+Math.cos(mid)*r;const y=cy+Math.sin(mid)*r;ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#10120a';ctx.font='bold 12px Manrope';const pct=NUM(val/tot*100,1)+'%';ctx.fillText(pct,x,y);ctx.restore();}}); }}}});
+      animation:{onComplete:function(){const ctx=this.ctx;const cx=this.chartArea?(this.chartArea.left+this.chartArea.right)/2:this.width/2;const cy=this.chartArea?(this.chartArea.top+this.chartArea.bottom)/2:this.height/2;const tot=(mgB+scB)||1;this.data.datasets[0].data.forEach((val,i)=>{const meta=this.getDatasetMeta(0);if(meta.data[i]){const el=meta.data[i];const mid=el.startAngle+(el.endAngle-el.startAngle)/2;const r=(el.outerRadius+el.innerRadius)/2;const x=cx+Math.cos(mid)*r;const y=cy+Math.sin(mid)*r;ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#ffffff';ctx.font='bold 12px Manrope';const pct=NUM(val/tot*100,1)+'%';ctx.fillText(pct,x,y);ctx.restore();}}); }}}});
 
   // Vencimentos por semana
   function weekStart(s){const dt=new Date(s+'T00:00:00');const wd=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-wd);return iso(dt);}
@@ -1131,13 +1157,14 @@ function initCharts(){
   charts.venc=new Chart(document.getElementById('venc'),{type:'bar',
     data:{labels:wlabels,datasets:[
       {label:'A receber (Bruto)',data:weeks.map(w=>wmap[w].tb),backgroundColor:C.green,borderRadius:8,maxBarThickness:46}]},
-    options:{responsive:true,maintainAspectRatio:false,
+    options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:24}},
       plugins:{legend:{labels:{usePointStyle:true,pointStyle:'rectRounded',boxWidth:10,font:{weight:'700'}}},
         tooltip:{backgroundColor:'#15170f',borderColor:'#2e3326',borderWidth:1,padding:12,callbacks:{title:i=>'Semana '+i[0].label,label:c=>c.dataset.label+': '+BRL(c.raw),afterBody:i=>'Notas a vencer: '+wmap[weeks[i[0].dataIndex]].n}}},
       scales:{x:{grid:{display:false},ticks:{maxRotation:0,autoSkip:false,font:{size:9.5}}},
-        y:{grid:{color:C.grid},ticks:{callback:v=>'R$ '+(v/1e6).toLocaleString('pt-BR',{maximumFractionDigits:1})+'M'}}}}});
+        y:{grid:{color:C.grid},ticks:{callback:v=>'R$ '+(v/1e6).toLocaleString('pt-BR',{maximumFractionDigits:1})+'M'}}}},
+    plugins:[{id:'vencValues',afterDatasetsDraw(chart){const ctx=chart.ctx;const meta=chart.getDatasetMeta(0);if(!meta||meta.hidden)return;ctx.save();ctx.font='700 10.5px Manrope';ctx.fillStyle='#e7ead5';ctx.textAlign='center';ctx.textBaseline='bottom';meta.data.forEach((bar,i)=>{const v=chart.data.datasets[0].data[i];if(v==null||!bar)return;ctx.fillText(BRLk(v),bar.x,bar.y-5);});ctx.restore();}}]});
   // Faturamento Bruto Mensal
-  const mmap={};DATA.forEach(r=>{const ym=r.d.slice(0,7);(mmap[ym]=mmap[ym]||{tb:0,tl:0,n:0});mmap[ym].tb+=r.tb;mmap[ym].tl+=r.tl;mmap[ym].n++;});
+  const mmap={};DATA_ALL.forEach(r=>{const ym=r.d.slice(0,7);(mmap[ym]=mmap[ym]||{tb:0,tl:0,n:0});mmap[ym].tb+=r.tb;mmap[ym].tl+=r.tl;mmap[ym].n++;});
   const months=Object.keys(mmap).sort();
   const mlabels=months.map(m=>{const[y,mo]=m.split('-');const nms=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];return nms[+mo-1]+'/'+y.slice(2);});
   const mvals=months.map(m=>mmap[m].tb);
@@ -1158,7 +1185,7 @@ function initCharts(){
       const idxMin=mvals.indexOf(Math.min(...mvals));
       let growthTxt='';
       if(months.length>1){const last=mvals[mvals.length-1],prev=mvals[mvals.length-2];const pct=((last-prev)/prev*100);growthTxt=`Comparado ao mês anterior, o último mês registrado (<b>${mlabels[months.length-1]}</b>) apresentou <b>${pct>=0?'+':''}${NUM(pct,1)}%</b> de variação. `;}
-      an.innerHTML=`<b style="font-family:'Archivo';font-size:.92rem">📊 Análise Mensal</b><br>${growthTxt}O melhor mês foi <b>${mlabels[idxMax]}</b> com <b>${BRL(mvals[idxMax])}</b>, e o menor foi <b>${mlabels[idxMin]}</b> com <b>${BRL(mvals[idxMin])}</b>. A média mensal no período é de <b>${BRL(avg)}</b> e o total acumulado é <b>${BRL(tot)}</b> em <b>${INT(DATA.reduce((s,r)=>s+r.n,0)||DATA.length)}</b> notas fiscais processadas.`;
+      an.innerHTML=`<b style="font-family:'Archivo';font-size:.92rem">📊 Análise Mensal</b><br>${growthTxt}O melhor mês foi <b>${mlabels[idxMax]}</b> com <b>${BRL(mvals[idxMax])}</b>, e o menor foi <b>${mlabels[idxMin]}</b> com <b>${BRL(mvals[idxMin])}</b>. A média mensal no período é de <b>${BRL(avg)}</b> e o total acumulado é <b>${BRL(tot)}</b> em <b>${INT(DATA_ALL.length)}</b> notas fiscais processadas.`;
     }
   }
 }
@@ -1201,11 +1228,27 @@ function renderPedidos(){
   // Cumprimento de contrato por cliente (tabela com % do volume faturado)
   const cb=document.querySelector('#tbl-cumpr tbody'), cf=document.querySelector('#tbl-cumpr tfoot');
   if(cb){
-    const cs=saidas.slice().sort((a,b)=>b.volContrato-a.volContrato);
-    cb.innerHTML=cs.map(r=>{
+    const regOrder={'SUDESTE':0,'SUL':1};
+    // maior volume por cliente dentro da região (para ordenar clientes entre si)
+    const cliMax={};
+    saidas.forEach(r=>{const k=r.reg+'|'+r.parte; cliMax[k]=Math.max(cliMax[k]||0,r.volContrato||0);});
+    const cs=saidas.slice().sort((a,b)=>{
+      const ra=(a.reg in regOrder?regOrder[a.reg]:9), rb=(b.reg in regOrder?regOrder[b.reg]:9);
+      if(ra!==rb) return ra-rb;                                   // separa por região (Sudeste, depois Sul)
+      const ma=cliMax[a.reg+'|'+a.parte], mb=cliMax[b.reg+'|'+b.parte];
+      if(ma!==mb) return mb-ma;                                   // clientes por maior volume
+      if(a.parte!==b.parte) return a.parte.localeCompare(b.parte);// mesmo cliente fica junto
+      return (b.volContrato||0)-(a.volContrato||0);               // dentro do cliente, volume desc
+    });
+    let curReg=null, html='';
+    cs.forEach(r=>{
+      if(r.reg!==curReg){ curReg=r.reg;
+        const qtd=cs.filter(x=>x.reg===r.reg).length;
+        html+=`<tr class="grp-row"><td colspan="7" style="text-align:left;background:var(--panel-2);font-family:'Archivo';font-weight:800;letter-spacing:.6px;color:var(--green);text-transform:uppercase;font-size:.78rem;padding:9px 14px">Região ${r.reg} · ${qtd} ${qtd===1?'contrato':'contratos'}</td></tr>`;
+      }
       const p=r.volContrato? r.fatContrato/r.volContrato*100 : 0;
       const bar=`<span style="display:inline-block;width:84px;height:8px;background:#2a2e21;border-radius:5px;overflow:hidden;vertical-align:middle;margin-right:9px"><i style="display:block;height:100%;width:${Math.min(p,100)}%;background:linear-gradient(90deg,var(--green-deep),var(--green))"></i></span><b>${NUM(p,1)}%</b>`;
-      return '<tr>'
+      html+='<tr>'
         +`<td style="text-align:left">${r.reg}</td>`
         +`<td style="text-align:left">${r.parte}</td>`
         +`<td style="text-align:left">${r.mat||'\u2014'}</td>`
@@ -1214,7 +1257,8 @@ function renderPedidos(){
         +`<td>${NUM(r.saldoContrato,0)}</td>`
         +`<td style="text-align:left">${bar}</td>`
         +'</tr>';
-    }).join('');
+    });
+    cb.innerHTML=html;
     cf.innerHTML='<tr>'
       +`<td style="text-align:left">TOTAL \u00b7 ${cs.length} contratos</td><td></td><td></td>`
       +`<td>${NUM(volC,0)}</td><td>${NUM(fatC,0)}</td><td>${NUM(saldoC,0)}</td>`
@@ -1371,7 +1415,7 @@ function handleFile(file){
         }
       }
       const recs=rowsToRecords(rows);
-      DATA=recs; DATA_ALL=recs.slice(); selectedDay=null; renderAll();
+      DATA=recs; DATA_ALL=recs.slice(); selectedDay=null; applyDefaultRange(); renderAll();
       overlay(false);
       toast('Base atualizada',INT(recs.length)+' notas processadas · KPIs, gráficos e tabelas recalculados');
     }catch(err){ overlay(false); console.error(err);
@@ -1473,7 +1517,8 @@ async function exportPDF(){
         }
       }
     }
-    const dd=new Date(); const fn=`Dashboard_Faturamento_Minas_Port_${z2(dd.getDate())}-${z2(dd.getMonth()+1)}-${dd.getFullYear()}.pdf`;
+    const refD=selectedDay||iso(new Date()); const[ry,rm,rd]=refD.split('-');
+    const fn=`Dashboard_Faturamento_Minas_Port_${rd}-${rm}-${ry}.pdf`;
     pdf.save(fn);
     toast('PDF exportado','Arquivo gerado com sucesso');
   }catch(err){
@@ -1518,7 +1563,7 @@ async function carregarRemoto(silencioso){
     }
     const recs=rowsToRecords(rows);
     if(!recs.length) throw new Error('nenhuma nota válida na 1ª aba');
-    DATA=recs; DATA_ALL=recs.slice(); selectedDay=null; renderAll();
+    DATA=recs; DATA_ALL=recs.slice(); selectedDay=null; applyDefaultRange(); renderAll();
     const h=new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
     setLive('Atualizado em '+h,'ok');
     if(!silencioso){ overlay(false); toast('Base atualizada', INT(recs.length)+' notas lidas da planilha online'); }
@@ -1552,9 +1597,22 @@ document.getElementById('btn-clear-range').addEventListener('click',()=>{
   toast('Filtro removido','Exibindo todos os dados');
 });
 
+// ---------- filtro de datas: default = 1º dia do mês corrente até a última data da base ----------
+function applyDefaultRange(){
+  if(!DATA_ALL.length) return;
+  const allDays=[...new Set(DATA_ALL.map(r=>r.d))].sort();
+  const last=allDays[allDays.length-1];      // última data inserida na base de dados
+  const ini=last.slice(0,7)+'-01';           // primeiro dia do mês corrente (mês da última data)
+  const ei=document.getElementById('range-ini'), ef=document.getElementById('range-fim');
+  if(ei) ei.value=ini; if(ef) ef.value=last;
+  const filtered=DATA_ALL.filter(r=>r.d>=ini && r.d<=last);
+  if(filtered.length){ DATA=filtered.slice(); selectedDay=null; }
+}
+
 // ---------- init ----------
 (function initDashboard(){
   try {
+    applyDefaultRange();
     renderAll();
     console.log('[Dashboard] renderAll OK, DATA length:', DATA.length);
   } catch(e) {
