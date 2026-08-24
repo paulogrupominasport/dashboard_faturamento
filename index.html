@@ -701,7 +701,7 @@ body.exporting .kcard,body.exporting .card,body.exporting .ucard,body.exporting 
 body.exporting .tabs{display:none}
 
 /* ===== Filter grid (Carregamentos) ===== */
-.filt-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-top:18px}
+.filt-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}
 .filt-item label{display:block;font-size:.7rem;font-weight:800;color:var(--txt-mute);text-transform:uppercase;letter-spacing:.6px;margin-bottom:7px}
 .filt-item input[type=date]{width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);color:var(--txt);
   padding:10px 12px;font-family:'Manrope';font-size:.85rem;outline:none;box-sizing:border-box}
@@ -1003,6 +1003,10 @@ body.exporting .tabs{display:none}
           <div class="msel" id="mselMaterial" data-placeholder="Todos os materiais"></div>
         </div>
         <div class="filt-item">
+          <label>Valor</label>
+          <div class="msel" id="mselValor" data-placeholder="Todos os valores"></div>
+        </div>
+        <div class="filt-item">
           <label>Data inicial</label>
           <input type="date" id="carreg-ini">
         </div>
@@ -1033,6 +1037,30 @@ body.exporting .tabs{display:none}
       <div class="kcard"><div class="kt"><span class="dot"></span>Qtd. Total do Pedido (Contrato)</div><div class="kv" id="cg-volcontrato">—</div><div class="kfoot" id="cg-volcontrato-f"></div></div>
       <div class="kcard liq"><div class="kt"><span class="dot"></span>Pedido do Mês</div><div class="kv" id="cg-totmes">—</div><div class="kfoot" id="cg-totmes-f"></div></div>
       <div class="kcard peso"><div class="kt"><span class="dot"></span>Saldo a Entregar</div><div class="kv" id="cg-saldo">—</div><div class="kfoot" id="cg-saldo-f"></div></div>
+    </div>
+  </div>
+
+  <!-- ÚLTIMO DIA -->
+  <div class="sect fade" id="carreg-ultimodia-section">
+    <div class="sect-h"><span class="bar"></span><h2>Último Dia de Faturamento</h2><span class="sub" id="cg-ultimodia-label"></span></div>
+    <div class="kgrid">
+      <div class="kcard"><div class="kt"><span class="dot"></span>Quantidade Carregada</div><div class="kv" id="cg-ud-qt">—</div><div class="kfoot" id="cg-ud-qt-f"></div></div>
+      <div class="kcard liq"><div class="kt"><span class="dot"></span>Valor Faturado</div><div class="kv" id="cg-ud-val">—</div><div class="kfoot" id="cg-ud-val-f"></div></div>
+      <div class="kcard peso"><div class="kt"><span class="dot"></span>Notas Emitidas</div><div class="kv" id="cg-ud-notas">—</div><div class="kfoot" id="cg-ud-notas-f"></div></div>
+    </div>
+    <div class="tcard" style="margin-top:16px">
+      <div class="th"><h3 style="font-family:'Archivo';font-weight:700;font-size:.98rem;display:flex;align-items:center;gap:10px"><span class="bar" style="width:4px;height:17px;background:var(--green);border-radius:3px"></span>Carregamentos do Último Dia</h3>
+        <div class="csub">Detalhamento nota a nota do último dia dentro do período filtrado</div></div>
+      <div class="tscroll"><table id="tbl-carreg-ultimodia">
+        <thead><tr>
+          <th style="text-align:left">Cliente</th>
+          <th style="text-align:left">Pedido / NF</th>
+          <th style="text-align:left">Material</th>
+          <th>Quantidade (t)</th>
+          <th>Valor</th>
+        </tr></thead>
+        <tbody id="cgUltimoDiaBody"></tbody>
+      </table></div>
     </div>
   </div>
 
@@ -1837,7 +1865,7 @@ function applyDefaultRange(){
    Faturamento.
    ===================================================================== */
 let cgInitialized = false;
-let mselCliente, mselPedido, mselMaterial;
+let mselCliente, mselPedido, mselMaterial, mselValor;
 let cgCharts = {};
 
 function escapeHtml(s){
@@ -1859,6 +1887,7 @@ function fuzzyMatch(a,b){
 function createMultiSelect(containerId, initialOptions, opts={}){
   const el = document.getElementById(containerId);
   const placeholder = el.dataset.placeholder || 'Todos';
+  const formatLabel = opts.formatLabel || (v=>String(v));
   let selected = new Set();
   let allOptions = initialOptions.slice();
 
@@ -1887,16 +1916,17 @@ function createMultiSelect(containerId, initialOptions, opts={}){
   }
   function renderList(filter){
     const f = (filter||'').trim().toUpperCase();
-    const items = allOptions.filter(o=>!f || String(o).toUpperCase().includes(f));
+    const items = allOptions.filter(o=>!f || String(o).toUpperCase().includes(f) || formatLabel(o).toUpperCase().includes(f));
     if(!items.length){ list.innerHTML='<div class="msel-empty">Nenhuma opção encontrada</div>'; return; }
     list.innerHTML = items.map(o=>{
       const val = escapeHtml(String(o));
-      return '<label class="msel-opt"><input type="checkbox" data-val="'+val+'" '+(selected.has(o)?'checked':'')+'> '+val+'</label>';
+      const disp = escapeHtml(formatLabel(o));
+      return '<label class="msel-opt"><input type="checkbox" data-val="'+val+'" '+(selected.has(o)?'checked':'')+'> '+disp+'</label>';
     }).join('');
   }
   function updateLabel(){
     if(!selected.size) label.textContent = placeholder;
-    else if(selected.size===1) label.textContent = String([...selected][0]);
+    else if(selected.size===1) label.textContent = formatLabel([...selected][0]);
     else label.textContent = selected.size+' selecionados';
   }
   function openPanel(){
@@ -1957,6 +1987,25 @@ function cgUniqueValues(key){
     .filter(v=>v!==undefined && v!==null && v!=='')
     .sort((a,b)=> typeof a==='number' && typeof b==='number' ? a-b : String(a).localeCompare(String(b),'pt-BR'));
 }
+const CG_MAT_CODE_MAP = {'MTE':'PETCOKE','ATE':'PETCOKE','STR':'TÉRMICO','YCRT':'TÉRMICO','DMD':'TÉRMICO'};
+function cgSimplifyMaterial(name){
+  let s = String(name==null?'':name).trim();
+  if(!s) return '—';
+  // "Carvão" sozinho (sem qualificador) refere-se ao carvão térmico genérico
+  if(/^carv[aã]o$/i.test(s)) return 'TÉRMICO';
+  s = s.replace(/^carv[aã]o\s+/i,'').trim();
+  const words = s.split(/\s+/).filter(Boolean);
+  if(!words.length) return '—';
+  const base = words[0].toUpperCase();
+  const baseNorm = normStr(base);
+  const mapKey = Object.keys(CG_MAT_CODE_MAP).find(k=>normStr(k)===baseNorm);
+  return mapKey ? CG_MAT_CODE_MAP[mapKey] : base;
+}
+function cgUniqueMaterials(){
+  return [...new Set(DATA_ALL.map(r=>cgSimplifyMaterial(r.prod)))]
+    .filter(v=>v!==undefined && v!==null && v!=='')
+    .sort((a,b)=>String(a).localeCompare(String(b),'pt-BR'));
+}
 function cgEnsureClean(){
   DATA_ALL = DATA_ALL.map(r=>{
     const cleanProd = String(r.prod||'').replace(/^carv[aã]o\s+/i,'').trim() || '—';
@@ -1978,12 +2027,14 @@ function cgFilteredData(){
   const sc = mselCliente ? mselCliente.getSelected() : [];
   const sp = mselPedido ? mselPedido.getSelected().map(String) : [];
   const sm = mselMaterial ? mselMaterial.getSelected() : [];
+  const sv = mselValor ? mselValor.getSelected() : [];
   return DATA_ALL.filter(r=>{
     if(di && r.d<di) return false;
     if(df && r.d>df) return false;
     if(sc.length && !sc.includes(r.cli)) return false;
     if(sp.length && !sp.includes(String(r.nota))) return false;
-    if(sm.length && !sm.includes(r.prod)) return false;
+    if(sm.length && !sm.includes(cgSimplifyMaterial(r.prod))) return false;
+    if(sv.length && !sv.includes(r.tb)) return false;
     return true;
   });
 }
@@ -1993,7 +2044,7 @@ function cgMatchedPedidos(){
   return PEDIDOS_ALL.filter(p=>{
     if(p.tipo!=='SAIDA') return false;
     if(sc.length && !sc.some(c=>fuzzyMatch(c,p.parte))) return false;
-    if(sm.length && !sm.some(m=>fuzzyMatch(m,p.mat))) return false;
+    if(sm.length && !sm.some(m=>fuzzyMatch(m,cgSimplifyMaterial(p.mat)))) return false;
     return true;
   });
 }
@@ -2002,13 +2053,14 @@ function cgMatchedPedidos(){
 function renderCarregamentos(){
   const rows = cgFilteredData();
   const peds = cgMatchedPedidos();
-  const sc = mselCliente.getSelected(), sp = mselPedido.getSelected(), sm = mselMaterial.getSelected();
+  const sc = mselCliente.getSelected(), sp = mselPedido.getSelected(), sm = mselMaterial.getSelected(), sv = mselValor ? mselValor.getSelected() : [];
 
   const parts=[];
   if(sc.length) parts.push(sc.length+' cliente'+(sc.length>1?'s':''));
   if(sp.length) parts.push(sp.length+' pedido'+(sp.length>1?'s':''));
   if(sm.length) parts.push(sm.length+' material'+(sm.length>1?'is':''));
-  document.getElementById('carreg-summary').textContent = parts.length ? 'Filtros ativos: '+parts.join(' · ') : 'Sem filtro de cliente/pedido/material — exibindo toda a base';
+  if(sv.length) parts.push(sv.length+' valor'+(sv.length>1?'es':''));
+  document.getElementById('carreg-summary').textContent = parts.length ? 'Filtros ativos: '+parts.join(' · ') : 'Sem filtro de cliente/pedido/material/valor — exibindo toda a base';
   document.getElementById('carreg-kpi-label').textContent = sc.length===1 ? sc[0] : (sc.length ? sc.length+' clientes selecionados' : 'Todos os clientes');
 
   const qtFat = sum(rows,'qt');
@@ -2036,6 +2088,7 @@ function renderCarregamentos(){
 
   renderCarregCharts(rows, peds);
   renderCarregTables(rows, peds);
+  renderCarregUltimoDia(rows);
 
   document.getElementById('carreg-foot-meta').textContent = INT(rows.length)+' registros no demonstrativo · gerado em '+new Date().toLocaleString('pt-BR');
 }
@@ -2090,7 +2143,7 @@ function renderCarregCharts(rows, peds){
   });
 
   // Por material
-  const byMat={}; rows.forEach(r=>{byMat[r.prod]=(byMat[r.prod]||0)+r.qt;});
+  const byMat={}; rows.forEach(r=>{const m=cgSimplifyMaterial(r.prod); byMat[m]=(byMat[m]||0)+r.qt;});
   const matEntries = Object.entries(byMat).sort((a,b)=>b[1]-a[1]).slice(0,10);
   cgCharts.material = new Chart(document.getElementById('cgMaterialChart'), {
     type:'bar',
@@ -2110,7 +2163,18 @@ function renderCarregTables(rows, peds){
     posBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--txt-mute);padding:22px">Selecione ao menos um cliente para ver a posição do pedido (contrato)</td></tr>';
     posFoot.innerHTML = '';
   } else {
-    const sorted = peds.slice().sort((a,b)=> a.parte.localeCompare(b.parte,'pt-BR') || String(a.mat||'').localeCompare(String(b.mat||''),'pt-BR'));
+    const grouped = {};
+    peds.forEach(p=>{
+      const matSimpl = cgSimplifyMaterial(p.mat);
+      const key = p.parte+'|'+matSimpl;
+      if(!grouped[key]) grouped[key] = {parte:p.parte, mat:matSimpl, volContrato:0, totalMes:0, fatContrato:0, saldoEntrega:0};
+      const g = grouped[key];
+      g.volContrato += (p.volContrato||0);
+      g.totalMes += (p.totalMes||0);
+      g.fatContrato += (p.fatContrato||0);
+      g.saldoEntrega += (p.saldoEntrega||0);
+    });
+    const sorted = Object.values(grouped).sort((a,b)=> a.parte.localeCompare(b.parte,'pt-BR') || String(a.mat||'').localeCompare(String(b.mat||''),'pt-BR'));
     posBody.innerHTML = sorted.map(p=>{
       const pct = p.volContrato ? p.fatContrato/p.volContrato*100 : 0;
       const bar = '<span style="display:inline-block;width:84px;height:8px;background:#2a2e21;border-radius:5px;overflow:hidden;vertical-align:middle;margin-right:9px"><i style="display:block;height:100%;width:'+Math.min(pct,100)+'%;background:linear-gradient(90deg,var(--green-deep),var(--green))"></i></span><b>'+NUM(pct,1)+'%</b>';
@@ -2120,7 +2184,7 @@ function renderCarregTables(rows, peds){
     }).join('');
     const t=k=>peds.reduce((s,p)=>s+(p[k]||0),0);
     const totPct = t('volContrato') ? t('fatContrato')/t('volContrato')*100 : 0;
-    posFoot.innerHTML = '<tr><td style="text-align:left">TOTAL · '+peds.length+' contrato'+(peds.length>1?'s':'')+'</td><td></td>'+
+    posFoot.innerHTML = '<tr><td style="text-align:left">TOTAL · '+sorted.length+' contrato'+(sorted.length>1?'s':'')+'</td><td></td>'+
       '<td>'+NUM(t('volContrato'),0)+'</td><td>'+NUM(t('totalMes'),0)+'</td><td>'+NUM(t('fatContrato'),0)+'</td><td>'+NUM(t('saldoEntrega'),0)+'</td>'+
       '<td style="text-align:left"><b>'+NUM(totPct,1)+'%</b></td></tr>';
   }
@@ -2129,10 +2193,47 @@ function renderCarregTables(rows, peds){
   const sortedRows = rows.slice().sort((a,b)=> a.d<b.d?1:(a.d>b.d?-1:0));
   detBody.innerHTML = sortedRows.map(r=>
     '<tr><td style="text-align:left">'+fmtDate(r.d)+'</td><td style="text-align:left">'+escapeHtml(r.cli)+'</td>'+
-    '<td style="text-align:left">'+escapeHtml(String(r.nota))+'</td><td style="text-align:left">'+escapeHtml(r.prod)+'</td>'+
+    '<td style="text-align:left">'+escapeHtml(String(r.nota))+'</td><td style="text-align:left">'+escapeHtml(cgSimplifyMaterial(r.prod))+'</td>'+
     '<td>'+NUM(r.qt)+'</td><td>'+BRL(r.tb)+'</td></tr>'
   ).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--txt-mute);padding:22px">Nenhum registro no recorte selecionado</td></tr>';
   document.getElementById('cgDetTotal').textContent = INT(rows.length)+' nota(s) · '+NUM(sum(rows,'qt'))+' t · '+BRL(sum(rows,'tb'));
+}
+
+function renderCarregUltimoDia(rows){
+  const body = document.getElementById('cgUltimoDiaBody');
+  const label = document.getElementById('cg-ultimodia-label');
+  if(!rows.length){
+    label.textContent = '';
+    document.getElementById('cg-ud-qt').textContent = '—';
+    document.getElementById('cg-ud-qt-f').textContent = '';
+    document.getElementById('cg-ud-val').textContent = '—';
+    document.getElementById('cg-ud-val-f').textContent = '';
+    document.getElementById('cg-ud-notas').textContent = '—';
+    document.getElementById('cg-ud-notas-f').textContent = '';
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--txt-mute);padding:22px">Nenhum registro no recorte selecionado</td></tr>';
+    return;
+  }
+  const days = [...new Set(rows.map(r=>r.d))].sort();
+  const lastDay = days[days.length-1];
+  const dayRows = rows.filter(r=>r.d===lastDay);
+
+  label.textContent = fmtDate(lastDay);
+  const qt = sum(dayRows,'qt');
+  const val = sum(dayRows,'tb');
+  const nNotas = dayRows.length;
+  document.getElementById('cg-ud-qt').innerHTML = NUM(qt)+'<span class="ku">t</span>';
+  document.getElementById('cg-ud-qt-f').innerHTML = 'Referente a <b>'+fmtDate(lastDay)+'</b>, último dia do recorte filtrado';
+  document.getElementById('cg-ud-val').innerHTML = BRL(val);
+  document.getElementById('cg-ud-val-f').innerHTML = 'Ticket médio <b>'+BRL(nNotas?val/nNotas:0)+'</b>/nota';
+  document.getElementById('cg-ud-notas').innerHTML = INT(nNotas);
+  document.getElementById('cg-ud-notas-f').innerHTML = 'Nota(s) emitida(s) no último dia';
+
+  const sortedDay = dayRows.slice().sort((a,b)=> a.cli.localeCompare(b.cli,'pt-BR'));
+  body.innerHTML = sortedDay.map(r=>
+    '<tr><td style="text-align:left">'+escapeHtml(r.cli)+'</td><td style="text-align:left">'+escapeHtml(String(r.nota))+'</td>'+
+    '<td style="text-align:left">'+escapeHtml(cgSimplifyMaterial(r.prod))+'</td>'+
+    '<td>'+NUM(r.qt)+'</td><td>'+BRL(r.tb)+'</td></tr>'
+  ).join('');
 }
 
 // ---------- inicialização da aba ----------
@@ -2140,17 +2241,19 @@ function refreshCarregFilters(){
   cgEnsureClean();
   mselCliente.setOptions(cgUniqueValues('cli'));
   mselPedido.setOptions(cgUniqueValues('nota'));
-  mselMaterial.setOptions(cgUniqueValues('prod'));
+  mselMaterial.setOptions(cgUniqueMaterials());
+  mselValor.setOptions(cgUniqueValues('tb'));
 }
 function initCarregamentosTab(){
   cgEnsureClean();
   mselCliente = createMultiSelect('mselCliente', cgUniqueValues('cli'), {onChange:()=>{}});
   mselPedido = createMultiSelect('mselPedido', cgUniqueValues('nota'), {onChange:()=>{}});
-  mselMaterial = createMultiSelect('mselMaterial', cgUniqueValues('prod'), {onChange:()=>{}});
+  mselMaterial = createMultiSelect('mselMaterial', cgUniqueMaterials(), {onChange:()=>{}});
+  mselValor = createMultiSelect('mselValor', cgUniqueValues('tb'), {onChange:()=>{}, formatLabel: v=>BRL(v)});
   cgDefaultRange();
   document.getElementById('btn-carreg-apply').addEventListener('click', renderCarregamentos);
   document.getElementById('btn-carreg-clear').addEventListener('click', ()=>{
-    mselCliente.clear(); mselPedido.clear(); mselMaterial.clear();
+    mselCliente.clear(); mselPedido.clear(); mselMaterial.clear(); mselValor.clear();
     document.getElementById('carreg-ini').value='';
     document.getElementById('carreg-fim').value='';
     renderCarregamentos();
