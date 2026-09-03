@@ -791,6 +791,7 @@ body.exporting .tabs{display:none}
   <nav class="tabs">
     <button type="button" class="tab-btn active" data-tab="fat" id="tabBtnFat">Faturamento</button>
     <button type="button" class="tab-btn" data-tab="carreg" id="tabBtnCarreg">Carregamentos</button>
+    <button type="button" class="tab-btn" data-tab="hist" id="tabBtnHist">Histórico de Pedidos</button>
   </nav>
 </header>
 
@@ -988,9 +989,9 @@ body.exporting .tabs{display:none}
     </div>
   </div>
 
-  <!-- PEDIDOS X ENTREGAS · POR CONTRATO (separado por regi&atilde;o e tipo) -->
+  <!-- PEDIDOS X VOLUME MENSAL (separado por regi&atilde;o e tipo) -->
   <div class="sect fade" style="animation-delay:.48s">
-    <div class="sect-h"><span class="bar"></span><h2>Pedidos &times; Entregas por Contrato</h2><span class="sub">Separado por regi&atilde;o (Sudeste e Sul) e tipo (sa&iacute;da e entrada) &middot; volumes em toneladas</span></div>
+    <div class="sect-h"><span class="bar"></span><h2>Pedidos &times; Volume Mensal</h2><span class="sub">Separado por regi&atilde;o (Sudeste e Sul) e tipo (sa&iacute;da e entrada) &middot; total do m&ecirc;s (Pedidos Atual) e % j&aacute; faturado no m&ecirc;s</span></div>
     <div id="ped-tables"></div>
   </div>
 
@@ -1161,6 +1162,44 @@ body.exporting .tabs{display:none}
   <footer>
     <div><span class="gp">GRUPO MINAS PORT</span> · Demonstrativo de Carregamentos</div>
     <div id="carreg-foot-meta"></div>
+  </footer>
+</div>
+
+<div class="wrap" id="tab-hist" style="display:none">
+  <!-- FILTRO DE MÊS -->
+  <div class="sect fade">
+    <div class="card">
+      <h3><span class="bar"></span>Histórico de Pedidos × Entregas</h3>
+      <div class="csub">Consulte a posição de contratos e volume mensal de um mês já encerrado (aba "Pedidos Entregas - &lt;mês&gt;" da base de dados)</div>
+      <div class="filt-actions" style="margin-top:16px">
+        <div class="filt-item" style="max-width:280px">
+          <label>Mês de referência</label>
+          <select id="hist-mes" style="width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);color:var(--txt);font-family:'Manrope';font-size:.86rem;padding:9px 12px;outline:none"></select>
+        </div>
+        <span class="csub" id="hist-summary" style="margin-left:auto"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="sect fade">
+    <div class="sect-h"><span class="bar"></span><h2>Posição do Mês Selecionado</h2><span class="sub" id="hist-label"></span></div>
+    <div class="kgrid">
+      <div class="kcard"><div class="kt"><span class="dot"></span>Volume Contratado</div><div class="kv" id="hist-vol">—</div><div class="kfoot" id="hist-vol-f"></div></div>
+      <div class="kcard liq"><div class="kt"><span class="dot"></span>Faturado / Entregue</div><div class="kv" id="hist-fat">—</div><div class="kfoot" id="hist-fat-f"></div></div>
+      <div class="kcard peso"><div class="kt"><span class="dot"></span>Saldo de Contrato</div><div class="kv" id="hist-saldo">—</div><div class="kfoot" id="hist-saldo-f"></div></div>
+      <div class="kcard"><div class="kt"><span class="dot"></span>Total do Mês</div><div class="kv" id="hist-totmes">—</div><div class="kfoot" id="hist-totmes-f"></div></div>
+      <div class="kcard liq"><div class="kt"><span class="dot"></span>Faturado no Mês</div><div class="kv" id="hist-fatmes">—</div><div class="kfoot" id="hist-fatmes-f"></div></div>
+      <div class="kcard peso"><div class="kt"><span class="dot"></span>Saldo a Entregar (Mês)</div><div class="kv" id="hist-saldoent">—</div><div class="kfoot" id="hist-saldoent-f"></div></div>
+    </div>
+  </div>
+
+  <!-- TABELA DETALHE POR CONTRATO -->
+  <div id="hist-tables"></div>
+
+  <footer>
+    <div><span class="gp">GRUPO MINAS PORT</span> · Histórico de Pedidos</div>
+    <div id="hist-foot-meta"></div>
   </footer>
 </div>
 
@@ -1565,10 +1604,10 @@ function loadPedidosFromWorkbook(wb){
 function renderPedidos(){
   const set=(id,v)=>{const el=document.getElementById(id); if(el) el.innerHTML=v;};
   const sumP=(a,k)=>a.reduce((s,r)=>s+(r[k]||0),0);
-  const rIni=document.getElementById('range-ini'), rFim=document.getElementById('range-fim');
-  const src=resolvePedidosSource(rIni?rIni.value:'', rFim?rFim.value:'');
-  const PEDS=src.peds;
-  set('pe-label','Saídas · acompanhamento de contratos (volumes em toneladas) · Fonte: '+src.label);
+  // Sempre a aba "Pedidos Atual" (mês corrente) — arquivos de meses passados
+  // ("Pedidos Entregas - <mês>") ficam só na aba Histórico de Pedidos
+  const PEDS=PEDIDOS_ALL;
+  set('pe-label','Saídas · acompanhamento de contratos (volumes em toneladas) · Fonte: Pedidos Atual');
   const saidas=PEDS.filter(x=>x.tipo==='SAIDA');
   const volC=sumP(saidas,'volContrato'), fatC=sumP(saidas,'fatContrato'), saldoC=sumP(saidas,'saldoContrato');
   const totMes=sumP(saidas,'totalMes'), fatMes=sumP(saidas,'faturado'), saldoEnt=sumP(saidas,'saldoEntrega');
@@ -1623,43 +1662,136 @@ function renderPedidos(){
       +'</tr>';
   }
 
-  // Pedidos x Entregas por contrato — tabelas separadas por regi\u00e3o e tipo
-  const host=document.getElementById('ped-tables');
-  if(host){
-    const groups=[['SUDESTE','SAIDA'],['SUDESTE','ENTRADA'],['SUL','SAIDA'],['SUL','ENTRADA']];
-    let html='';
-    groups.forEach(([reg,tp])=>{
-      const g=PEDS.filter(x=>x.reg===reg&&x.tipo===tp);
-      if(!g.length) return;
-      const isSaida=tp==='SAIDA';
-      const tag=isSaida?'<span class="tag mg">SA\u00cdDA</span>':'<span class="tag sc">ENTRADA</span>';
-      const colParte=isSaida?'Cliente':'Fornecedor';
-      const colFatC=isSaida?'Faturado do Contrato':'Carregado do Contrato';
-      const colFat=isSaida?'Faturado':'Carregado';
-      const body=g.map(r=>'<tr>'
+  // Pedidos x Volume Mensal — tabelas separadas por regi\u00e3o e tipo (só o total do
+  // mês + % já faturado no mês; contrato/saldo de contrato já aparecem no card acima)
+  renderPedidosVolumeMensal(PEDS, 'ped-tables', sumP);
+}
+function pctBar(p){
+  return `<span style="display:inline-block;width:84px;height:8px;background:#2a2e21;border-radius:5px;overflow:hidden;vertical-align:middle;margin-right:9px"><i style="display:block;height:100%;width:${Math.min(p,100)}%;background:linear-gradient(90deg,var(--green-deep),var(--green))"></i></span><b>${NUM(p,1)}%</b>`;
+}
+function renderPedidosVolumeMensal(PEDS, hostId, sumP){
+  const host=document.getElementById(hostId);
+  if(!host) return;
+  const groups=[['SUDESTE','SAIDA'],['SUDESTE','ENTRADA'],['SUL','SAIDA'],['SUL','ENTRADA']];
+  let html='';
+  groups.forEach(([reg,tp])=>{
+    const g=PEDS.filter(x=>x.reg===reg&&x.tipo===tp);
+    if(!g.length) return;
+    const isSaida=tp==='SAIDA';
+    const tag=isSaida?'<span class="tag mg">SA\u00cdDA</span>':'<span class="tag sc">ENTRADA</span>';
+    const colParte=isSaida?'Cliente':'Fornecedor';
+    const colFat=isSaida?'Faturado':'Carregado';
+    const body=g.map(r=>{
+      const p=r.totalMes? r.faturado/r.totalMes*100 : 0;
+      return '<tr>'
         +`<td style="text-align:left">${r.parte}</td>`
         +`<td style="text-align:left">${r.mat||'\u2014'}</td>`
-        +`<td>${NUM(r.volContrato,0)}</td>`
-        +`<td>${NUM(r.fatContrato,0)}</td>`
-        +`<td>${NUM(r.saldoContrato,0)}</td>`
         +`<td>${NUM(r.totalMes,0)}</td>`
         +`<td>${NUM(r.faturado,0)}</td>`
-        +`<td>${NUM(r.saldoEntrega,0)}</td>`
-        +'</tr>').join('');
-      const f=k=>NUM(sumP(g,k),0);
-      const foot='<tr>'
-        +`<td style="text-align:left">TOTAIS \u00b7 ${g.length}</td><td></td>`
-        +`<td>${f('volContrato')}</td><td>${f('fatContrato')}</td><td>${f('saldoContrato')}</td>`
-        +`<td>${f('totalMes')}</td><td>${f('faturado')}</td><td>${f('saldoEntrega')}</td>`
+        +`<td style="text-align:left">${pctBar(p)}</td>`
         +'</tr>';
-      html+=`<div class="tcard" style="margin-bottom:20px">`
-        +`<div class="th"><h3 style="font-family:'Archivo';font-weight:700;font-size:.95rem;display:flex;align-items:center;gap:11px">${tag}<span>${reg}</span></h3></div>`
-        +`<div class="tscroll"><table>`
-        +`<thead><tr><th>${colParte}</th><th>Material</th><th>Vol. Contrato</th><th>${colFatC}</th><th>Saldo Contrato</th><th>Total M\u00eas</th><th>${colFat}</th><th>Saldo Entrega</th></tr></thead>`
-        +`<tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div></div>`;
-    });
-    host.innerHTML=html;
+    }).join('');
+    const f=k=>NUM(sumP(g,k),0);
+    const totTotalMes=sumP(g,'totalMes'), totFat=sumP(g,'faturado');
+    const pTot=totTotalMes? totFat/totTotalMes*100 : 0;
+    const foot='<tr>'
+      +`<td style="text-align:left">TOTAIS \u00b7 ${g.length}</td><td></td>`
+      +`<td>${f('totalMes')}</td><td>${f('faturado')}</td>`
+      +`<td style="text-align:left">${pctBar(pTot)}</td>`
+      +'</tr>';
+    html+=`<div class="tcard" style="margin-bottom:20px">`
+      +`<div class="th"><h3 style="font-family:'Archivo';font-weight:700;font-size:.95rem;display:flex;align-items:center;gap:11px">${tag}<span>${reg}</span></h3></div>`
+      +`<div class="tscroll"><table>`
+      +`<thead><tr><th>${colParte}</th><th>Material</th><th>Total M\u00eas</th><th>${colFat} no M\u00eas</th><th style="text-align:left">% do M\u00eas</th></tr></thead>`
+      +`<tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div></div>`;
+  });
+  host.innerHTML=html;
+}
+// Tabela detalhada (contrato + mês) — usada na aba Histórico de Pedidos para
+// consulta de arquivos de meses encerrados ("Pedidos Entregas - <mês>")
+function renderPedidosDetalhado(PEDS, hostId, sumP){
+  const host=document.getElementById(hostId);
+  if(!host) return;
+  const groups=[['SUDESTE','SAIDA'],['SUDESTE','ENTRADA'],['SUL','SAIDA'],['SUL','ENTRADA']];
+  let html='';
+  groups.forEach(([reg,tp])=>{
+    const g=PEDS.filter(x=>x.reg===reg&&x.tipo===tp);
+    if(!g.length) return;
+    const isSaida=tp==='SAIDA';
+    const tag=isSaida?'<span class="tag mg">SAÍDA</span>':'<span class="tag sc">ENTRADA</span>';
+    const colParte=isSaida?'Cliente':'Fornecedor';
+    const colFatC=isSaida?'Faturado do Contrato':'Carregado do Contrato';
+    const colFat=isSaida?'Faturado':'Carregado';
+    const body=g.map(r=>'<tr>'
+      +`<td style="text-align:left">${r.parte}</td>`
+      +`<td style="text-align:left">${r.mat||'—'}</td>`
+      +`<td>${NUM(r.volContrato,0)}</td>`
+      +`<td>${NUM(r.fatContrato,0)}</td>`
+      +`<td>${NUM(r.saldoContrato,0)}</td>`
+      +`<td>${NUM(r.totalMes,0)}</td>`
+      +`<td>${NUM(r.faturado,0)}</td>`
+      +`<td>${NUM(r.saldoEntrega,0)}</td>`
+      +'</tr>').join('');
+    const f=k=>NUM(sumP(g,k),0);
+    const foot='<tr>'
+      +`<td style="text-align:left">TOTAIS · ${g.length}</td><td></td>`
+      +`<td>${f('volContrato')}</td><td>${f('fatContrato')}</td><td>${f('saldoContrato')}</td>`
+      +`<td>${f('totalMes')}</td><td>${f('faturado')}</td><td>${f('saldoEntrega')}</td>`
+      +'</tr>';
+    html+=`<div class="tcard" style="margin-bottom:20px">`
+      +`<div class="th"><h3 style="font-family:'Archivo';font-weight:700;font-size:.95rem;display:flex;align-items:center;gap:11px">${tag}<span>${reg}</span></h3></div>`
+      +`<div class="tscroll"><table>`
+      +`<thead><tr><th>${colParte}</th><th>Material</th><th>Vol. Contrato</th><th>${colFatC}</th><th>Saldo Contrato</th><th>Total Mês</th><th>${colFat}</th><th>Saldo Entrega</th></tr></thead>`
+      +`<tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div></div>`;
+  });
+  host.innerHTML=html;
+}
+
+// ---------- histórico de pedidos (arquivos mensais) ----------
+let histInitialized = false;
+const HIST_MESES=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+function histFmtKey(k){ const p=k.split('-'); const y=+p[0], m=+p[1]; return HIST_MESES[m-1]+'/'+y; }
+function initHistTab(){
+  const sel=document.getElementById('hist-mes');
+  if(!sel) return;
+  const keys=Object.keys(PEDIDOS_ARCHIVES).sort().reverse();
+  if(!keys.length){
+    sel.innerHTML='<option value="">Nenhum mês arquivado</option>';
+    const sum=document.getElementById('hist-summary');
+    if(sum) sum.textContent='Nenhuma aba de arquivo mensal ("Pedidos Entregas - <mês>") encontrada na base de dados.';
+    return;
   }
+  sel.innerHTML=keys.map(k=>`<option value="${k}">${histFmtKey(k)}</option>`).join('');
+  sel.addEventListener('change', renderHist);
+  renderHist();
+}
+function renderHist(){
+  const set=(id,v)=>{const el=document.getElementById(id); if(el) el.innerHTML=v;};
+  const sumP=(a,k)=>a.reduce((s,r)=>s+(r[k]||0),0);
+  const sel=document.getElementById('hist-mes');
+  const key=sel?sel.value:'';
+  const PEDS=(key&&PEDIDOS_ARCHIVES[key])?PEDIDOS_ARCHIVES[key]:[];
+  const summary=document.getElementById('hist-summary');
+  if(summary) summary.textContent = key ? ('Fonte: Pedidos Entregas – '+histFmtKey(key)) : '';
+  set('hist-label', key ? ('Pedidos Entregas – '+histFmtKey(key)) : 'Selecione um mês de referência acima');
+
+  const saidas=PEDS.filter(x=>x.tipo==='SAIDA');
+  const volC=sumP(saidas,'volContrato'), fatC=sumP(saidas,'fatContrato'), saldoC=sumP(saidas,'saldoContrato');
+  const totMes=sumP(saidas,'totalMes'), fatMes=sumP(saidas,'faturado'), saldoEnt=sumP(saidas,'saldoEntrega');
+  const pct=volC? fatC/volC*100 : 0;
+  const pctMes=totMes? fatMes/totMes*100 : 0;
+  const T=v=>NUM(v,0)+'<span class="ku">t</span>';
+  set('hist-vol',T(volC));          set('hist-vol-f',`<b>${saidas.length}</b> contratos de venda (saídas)`);
+  set('hist-fat',T(fatC));          set('hist-fat-f',`Cumprimento de <b>${NUM(pct,1)}%</b> do volume contratado`);
+  set('hist-saldo',T(saldoC));      set('hist-saldo-f','Volume restante a faturar nos contratos');
+  set('hist-totmes',T(totMes));     set('hist-totmes-f','Meta de entrega do mês de referência');
+  set('hist-fatmes',T(fatMes));     set('hist-fatmes-f',`<b>${NUM(pctMes,1)}%</b> da meta do mês já faturado`);
+  set('hist-saldoent',T(saldoEnt)); set('hist-saldoent-f','Pendente para fechar a meta do mês');
+
+  renderPedidosDetalhado(PEDS, 'hist-tables', sumP);
+
+  const meta=document.getElementById('hist-foot-meta');
+  if(meta) meta.textContent = key ? (INT(PEDS.length)+' registros · '+histFmtKey(key)+' · consulta gerada em '+new Date().toLocaleString('pt-BR')) : '';
 }
 
 // ---------- master render ----------
@@ -2158,9 +2290,9 @@ function cgFilteredData(){
 function cgMatchedPedidos(){
   const sc = mselCliente ? mselCliente.getSelected() : [];
   const sm = mselMaterial ? mselMaterial.getSelected() : [];
-  const di = document.getElementById('carreg-ini') ? document.getElementById('carreg-ini').value : '';
-  const df = document.getElementById('carreg-fim') ? document.getElementById('carreg-fim').value : '';
-  const base = pedidosForRange(di, df);
+  // Sempre a aba "Pedidos Atual" — arquivos de meses passados ficam só na aba
+  // Histórico de Pedidos (nunca aplicados automaticamente por filtro de data)
+  const base = PEDIDOS_ALL;
   return base.filter(p=>{
     if(p.tipo!=='SAIDA') return false;
     if(sc.length && !sc.some(c=>fuzzyMatch(c,p.parte))) return false;
@@ -2169,9 +2301,7 @@ function cgMatchedPedidos(){
   });
 }
 function cgPedidosSourceLabel(){
-  const di = document.getElementById('carreg-ini') ? document.getElementById('carreg-ini').value : '';
-  const df = document.getElementById('carreg-fim') ? document.getElementById('carreg-fim').value : '';
-  return resolvePedidosSource(di, df).label;
+  return 'Pedidos Atual';
 }
 
 // ---------- render ----------
@@ -2478,9 +2608,13 @@ document.querySelectorAll('.tab-btn').forEach(tb=>{
     const tab = tb.dataset.tab;
     document.getElementById('tab-fat').style.display = tab==='fat' ? '' : 'none';
     document.getElementById('tab-carreg').style.display = tab==='carreg' ? '' : 'none';
+    const th=document.getElementById('tab-hist'); if(th) th.style.display = tab==='hist' ? '' : 'none';
     if(tab==='carreg'){
       if(!cgInitialized){ cgInitialized=true; initCarregamentosTab(); }
       else { refreshCarregFilters(); renderCarregamentos(); }
+    }
+    if(tab==='hist'){
+      if(!histInitialized){ histInitialized=true; initHistTab(); }
     }
   });
 });
